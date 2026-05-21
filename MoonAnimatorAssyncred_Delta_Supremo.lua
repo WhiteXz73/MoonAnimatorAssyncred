@@ -1,20 +1,39 @@
 --[[
 ═══════════════════════════════════════════════════════════════
-    🌙 MOON ANIMATOR ASSYNCRED - PARTE 1/20
+    🌙 MOON ANIMATOR ASSYNCRED - PARTE 1/20 [CORRIGIDA]
     CORE FRAMEWORK & BOOTSTRAP SYSTEM
-    
-    Sistema de inicialização e arquitetura central
-    Desenvolvido com padrões AAA profissionais
 ═══════════════════════════════════════════════════════════════
 ]]
 
-local MoonAnimatorAssyncred = {}
-MoonAnimatorAssyncred.__index = MoonAnimatorAssyncred
-MoonAnimatorAssyncred.Version = "1.0.0-ALPHA"
-MoonAnimatorAssyncred.BuildDate = "2024"
+-- ═══════════════════════════════════════════════════════════
+-- SAFE SERVICE GETTER
+-- ═══════════════════════════════════════════════════════════
+
+local function SafeGetService(serviceName)
+    local success, service = pcall(function()
+        return game:GetService(serviceName)
+    end)
+    if success and service then
+        return service
+    end
+    return nil
+end
 
 -- ═══════════════════════════════════════════════════════════
--- GLOBAL NAMESPACE & ARCHITECTURE
+-- SERVICES (SAFE)
+-- ═══════════════════════════════════════════════════════════
+
+local Players = SafeGetService("Players")
+local RunService = SafeGetService("RunService")
+local UserInputService = SafeGetService("UserInputService")
+local TweenService = SafeGetService("TweenService")
+local HttpService = SafeGetService("HttpService")
+
+local Player = Players and Players.LocalPlayer
+local Mouse = Player and Player:GetMouse()
+
+-- ═══════════════════════════════════════════════════════════
+-- GLOBAL NAMESPACE
 -- ═══════════════════════════════════════════════════════════
 
 local MOON = {
@@ -30,71 +49,117 @@ local MOON = {
     API = {}
 }
 
-_G.MOON = MOON -- Global access for modular architecture
+_G.MOON = MOON
 
 -- ═══════════════════════════════════════════════════════════
--- SERVICES
+-- SAFE EXECUTOR FUNCTIONS
 -- ═══════════════════════════════════════════════════════════
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
-local CoreGui = game:GetService("CoreGui")
+-- setclipboard seguro
+local function SafeSetClipboard(text)
+    local funcs = {"setclipboard", "toclipboard", "set_clipboard"}
+    for _, fname in ipairs(funcs) do
+        if _G[fname] then
+            pcall(_G[fname], text)
+            return true
+        end
+    end
+    -- Fallback: print para console
+    print("[CLIPBOARD] " .. tostring(text))
+    return false
+end
 
-local Player = Players.LocalPlayer
-local Mouse = Player:GetMouse()
+-- getclipboard seguro
+local function SafeGetClipboard()
+    local funcs = {"getclipboard", "get_clipboard", "fromclipboard"}
+    for _, fname in ipairs(funcs) do
+        if _G[fname] then
+            local ok, result = pcall(_G[fname])
+            if ok then return result end
+        end
+    end
+    return ""
+end
+
+-- collectgarbage seguro
+local function SafeCollectGarbage()
+    local ok, result = pcall(collectgarbage, "collect")
+    if not ok then
+        pcall(collectgarbage)
+    end
+    return gcinfo and gcinfo() or 0
+end
+
+-- debug.traceback seguro
+local function SafeTraceback()
+    local ok, result = pcall(debug.traceback)
+    if ok then return result end
+    return "Stack trace unavailable"
+end
+
+MOON.Utils.SafeSetClipboard = SafeSetClipboard
+MOON.Utils.SafeGetClipboard = SafeGetClipboard
+MOON.Utils.SafeCollectGarbage = SafeCollectGarbage
+MOON.Utils.SafeTraceback = SafeTraceback
 
 -- ═══════════════════════════════════════════════════════════
 -- CORE CONFIGURATION
 -- ═══════════════════════════════════════════════════════════
 
+local isMobile = false
+local isTouchEnabled = false
+
+if UserInputService then
+    local ok1, touch = pcall(function()
+        return UserInputService.TouchEnabled
+    end)
+    local ok2, keyboard = pcall(function()
+        return UserInputService.KeyboardEnabled
+    end)
+    if ok1 and ok2 then
+        isTouchEnabled = touch
+        isMobile = touch and not keyboard
+    end
+end
+
 MOON.Config = {
-    -- Global Settings
     AppName = "Moon Animator Assyncred",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Theme = "DarkFuturistic",
-    
-    -- Performance
+
     MaxFPS = 60,
     EnableGPUOptimization = true,
     LazyLoadPlugins = true,
     VirtualizeUI = true,
-    
-    -- UI Settings
+
     DefaultWindowSize = UDim2.new(0, 900, 0, 600),
     MinWindowSize = Vector2.new(400, 300),
     MaxWindowSize = Vector2.new(1400, 900),
     TopBarHeight = 32,
-    
-    -- Mobile Optimization
-    IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled,
+
+    IsMobile = isMobile,
     MobileScale = 1.2,
-    TouchOptimization = true,
-    
-    -- Animation Settings
+    TouchOptimization = isTouchEnabled,
+
     DefaultFPS = 30,
     MaxKeyframes = 10000,
     InterpolationMode = "Cubic",
-    
-    -- Paths
+
     SavePath = "MoonAnimator/",
     PluginPath = "Plugins/",
     ThemePath = "Themes/",
-    
-    -- Features
+
     EnableHotReload = true,
     EnableAutoSave = true,
-    AutoSaveInterval = 300, -- 5 minutes
+    AutoSaveInterval = 300,
     EnableCollaboration = false,
     EnableCloudSync = false,
+    
+    UIUpdateRate = 1,
 }
 
 -- ═══════════════════════════════════════════════════════════
--- EVENT SYSTEM (Signal Implementation)
+-- EVENT SYSTEM (Signal)
 -- ═══════════════════════════════════════════════════════════
 
 local Signal = {}
@@ -108,23 +173,19 @@ function Signal.new()
 end
 
 function Signal:Connect(callback)
-    assert(type(callback) == "function", "Callback must be a function")
-    
+    if type(callback) ~= "function" then return end
     self._nextId = self._nextId + 1
     local id = self._nextId
-    
     local connection = {
         Connected = true,
         _callback = callback,
         _id = id,
         _signal = self,
-        
         Disconnect = function(conn)
             conn.Connected = false
             conn._signal._connections[conn._id] = nil
         end
     }
-    
     self._connections[id] = connection
     return connection
 end
@@ -132,7 +193,10 @@ end
 function Signal:Fire(...)
     for _, connection in pairs(self._connections) do
         if connection.Connected then
-            coroutine.wrap(connection._callback)(...)
+            local ok, err = pcall(connection._callback, ...)
+            if not ok then
+                print("[MOON SIGNAL ERROR] " .. tostring(err))
+            end
         end
     end
 end
@@ -162,41 +226,41 @@ MOON.Utils.Signal = Signal
 
 local Logger = {}
 Logger.History = {}
-Logger.MaxHistory = 1000
+Logger.MaxHistory = 500
 
 Logger.Levels = {
-    DEBUG = {Color = Color3.fromRGB(150, 150, 150), Prefix = "[DEBUG]"},
-    INFO = {Color = Color3.fromRGB(100, 200, 255), Prefix = "[INFO]"},
-    WARN = {Color = Color3.fromRGB(255, 200, 100), Prefix = "[WARN]"},
-    ERROR = {Color = Color3.fromRGB(255, 100, 100), Prefix = "[ERROR]"},
-    SUCCESS = {Color = Color3.fromRGB(100, 255, 150), Prefix = "[SUCCESS]"}
+    DEBUG   = {Prefix = "[DEBUG]  "},
+    INFO    = {Prefix = "[INFO]   "},
+    WARN    = {Prefix = "[WARN]   "},
+    ERROR   = {Prefix = "[ERROR]  "},
+    SUCCESS = {Prefix = "[SUCCESS]"},
 }
 
 function Logger:Log(level, message, ...)
+    local ok, formatted = pcall(string.format, message, ...)
+    if not ok then
+        formatted = tostring(message)
+    end
+
     local logData = {
         Level = level,
-        Message = string.format(message, ...),
+        Message = formatted,
         Timestamp = os.time(),
-        Frame = tick()
     }
-    
+
     table.insert(self.History, logData)
     if #self.History > self.MaxHistory then
         table.remove(self.History, 1)
     end
-    
-    local levelData = self.Levels[level]
-    print(string.format("[MOON] %s %s", levelData.Prefix, logData.Message))
-    
-    if MOON.UI.Console then
-        MOON.UI.Console:AddLog(logData)
-    end
+
+    local levelData = self.Levels[level] or self.Levels.INFO
+    print(string.format("[MOON] %s %s", levelData.Prefix, formatted))
 end
 
-function Logger:Debug(...) self:Log("DEBUG", ...) end
-function Logger:Info(...) self:Log("INFO", ...) end
-function Logger:Warn(...) self:Log("WARN", ...) end
-function Logger:Error(...) self:Log("ERROR", ...) end
+function Logger:Debug(...)   self:Log("DEBUG", ...) end
+function Logger:Info(...)    self:Log("INFO", ...) end
+function Logger:Warn(...)    self:Log("WARN", ...) end
+function Logger:Error(...)   self:Log("ERROR", ...) end
 function Logger:Success(...) self:Log("SUCCESS", ...) end
 
 MOON.Core.Logger = Logger
@@ -212,50 +276,69 @@ local PerformanceMonitor = {
         MemoryUsage = 0,
         ActiveWindows = 0,
         ActivePlugins = 0,
-        RenderCalls = 0
     },
-    
     History = {},
-    MaxHistory = 300, -- 10 seconds at 30fps
+    MaxHistory = 120,
+    _initialized = false,
 }
 
 function PerformanceMonitor:Init()
+    if self._initialized then return end
+    self._initialized = true
+
+    if not RunService then
+        Logger:Warn("RunService unavailable - Performance Monitor disabled")
+        return
+    end
+
     local lastFrame = tick()
     local frameCount = 0
     local fpsUpdateInterval = 0.5
     local fpsTimer = 0
-    
-    RunService.RenderStepped:Connect(function()
-        local now = tick()
-        local delta = now - lastFrame
-        lastFrame = now
-        
-        self.Metrics.FrameTime = delta * 1000 -- ms
-        
-        frameCount = frameCount + 1
-        fpsTimer = fpsTimer + delta
-        
-        if fpsTimer >= fpsUpdateInterval then
-            self.Metrics.FPS = math.floor(frameCount / fpsTimer)
-            frameCount = 0
-            fpsTimer = 0
-        end
-        
-        -- Memory tracking
-        self.Metrics.MemoryUsage = gcinfo()
-        
-        -- History tracking
-        table.insert(self.History, {
-            FPS = self.Metrics.FPS,
-            FrameTime = self.Metrics.FrameTime,
-            Timestamp = now
-        })
-        
-        if #self.History > self.MaxHistory then
-            table.remove(self.History, 1)
-        end
+
+    local ok = pcall(function()
+        RunService.RenderStepped:Connect(function()
+            local now = tick()
+            local delta = now - lastFrame
+            lastFrame = now
+
+            self.Metrics.FrameTime = delta * 1000
+            frameCount = frameCount + 1
+            fpsTimer = fpsTimer + delta
+
+            if fpsTimer >= fpsUpdateInterval then
+                self.Metrics.FPS = math.floor(frameCount / fpsTimer)
+                frameCount = 0
+                fpsTimer = 0
+            end
+
+            if gcinfo then
+                self.Metrics.MemoryUsage = gcinfo()
+            end
+
+            table.insert(self.History, {
+                FPS = self.Metrics.FPS,
+                Timestamp = now
+            })
+            if #self.History > self.MaxHistory then
+                table.remove(self.History, 1)
+            end
+        end)
     end)
-    
+
+    if not ok then
+        Logger:Warn("Could not connect RenderStepped - using Heartbeat")
+        pcall(function()
+            RunService.Heartbeat:Connect(function(dt)
+                self.Metrics.FrameTime = dt * 1000
+                self.Metrics.FPS = math.floor(1 / dt)
+                if gcinfo then
+                    self.Metrics.MemoryUsage = gcinfo()
+                end
+            end)
+        end)
+    end
+
     Logger:Success("Performance Monitor initialized")
 end
 
@@ -269,14 +352,14 @@ MOON.Performance.Monitor = PerformanceMonitor
 -- UTILITY FUNCTIONS
 -- ═══════════════════════════════════════════════════════════
 
-local Utils = {}
+local Utils = MOON.Utils
 
 function Utils.DeepCopy(original)
     local copy
-    if type(original) == 'table' then
+    if type(original) == "table" then
         copy = {}
-        for key, value in next, original, nil do
-            copy[Utils.DeepCopy(key)] = Utils.DeepCopy(value)
+        for k, v in next, original, nil do
+            copy[Utils.DeepCopy(k)] = Utils.DeepCopy(v)
         end
         setmetatable(copy, Utils.DeepCopy(getmetatable(original)))
     else
@@ -294,11 +377,23 @@ function Utils.Clamp(value, min, max)
 end
 
 function Utils.Map(value, inMin, inMax, outMin, outMax)
+    if inMax == inMin then return outMin end
     return outMin + (value - inMin) * (outMax - outMin) / (inMax - inMin)
 end
 
 function Utils.UUID()
-    return HttpService:GenerateGUID(false)
+    if HttpService then
+        local ok, result = pcall(function()
+            return HttpService:GenerateGUID(false)
+        end)
+        if ok then return result end
+    end
+    -- Fallback UUID sem HttpService
+    local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+    return string.gsub(template, "[xy]", function(c)
+        local v = (c == "x") and math.random(0, 0xf) or math.random(8, 0xb)
+        return string.format("%x", v)
+    end)
 end
 
 function Utils.Round(number, decimals)
@@ -314,6 +409,8 @@ function Utils.TableFind(tbl, value)
 end
 
 function Utils.TableMerge(t1, t2)
+    if type(t1) ~= "table" then t1 = {} end
+    if type(t2) ~= "table" then return t1 end
     local result = Utils.DeepCopy(t1)
     for k, v in pairs(t2) do
         if type(v) == "table" and type(result[k]) == "table" then
@@ -325,64 +422,44 @@ function Utils.TableMerge(t1, t2)
     return result
 end
 
-MOON.Utils = Utils
+function Utils.TableCount(tbl)
+    local count = 0
+    for _ in pairs(tbl) do count = count + 1 end
+    return count
+end
 
 -- ═══════════════════════════════════════════════════════════
 -- INITIALIZATION
 -- ═══════════════════════════════════════════════════════════
 
-function MOON.Core.Init()
-    Logger:Info("=================================================")
-    Logger:Info("  MOON ANIMATOR ASSYNCRED v%s", MOON.Config.Version)
-    Logger:Info("  Professional Animation Framework for Roblox")
-    Logger:Info("=================================================")
-    
-    Logger:Info("Initializing Core Systems...")
-    
-    -- Detect platform
-    if MOON.Config.IsMobile then
-        Logger:Info("Platform: Mobile (Touch Enabled)")
-    else
-        Logger:Info("Platform: Desktop")
-    end
-    
-    -- Initialize performance monitoring
-    PerformanceMonitor:Init()
-    
-    Logger:Success("Core Framework initialized successfully!")
-    Logger:Info("Ready to load UI System (Part 2)")
-end
+Logger:Info("================================================")
+Logger:Info("  MOON ANIMATOR ASSYNCRED v%s", MOON.Config.Version)
+Logger:Info("  Professional Animation Framework")
+Logger:Info("================================================")
+Logger:Info("Platform: %s", MOON.Config.IsMobile and "Mobile" or "Desktop")
+Logger:Info("Touch: %s", isTouchEnabled and "Yes" or "No")
 
--- Auto-initialize
-MOON.Core.Init()
+-- Inicia o monitor agora
+PerformanceMonitor:Init()
+
+Logger:Success("Core Framework initialized!")
+Logger:Info("Paste Part 2 now...")
 
 --[[
 ═══════════════════════════════════════════════════════════════
-    FIM DA PARTE 1/20
-    
-    ✅ Sistema de eventos (Signal)
-    ✅ Logger profissional
-    ✅ Monitor de performance
-    ✅ Utilitários essenciais
-    ✅ Configuração global
-    ✅ Arquitetura modular
-    
-    PRÓXIMA PARTE: UI Framework & Theme System
-═══════════════════════════════════════════════════════════════
-]]
-
---[[
-═══════════════════════════════════════════════════════════════
-    🌙 MOON ANIMATOR ASSYNCRED - PARTE 2/20
+    🌙 MOON ANIMATOR ASSYNCRED - PARTE 2/20 [CORRIGIDA]
     UI FRAMEWORK & THEME SYSTEM
-    
-    Sistema de interface profissional com temas customizáveis
 ═══════════════════════════════════════════════════════════════
 ]]
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
+
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
 
 -- ═══════════════════════════════════════════════════════════
 -- THEME SYSTEM
@@ -393,67 +470,45 @@ local ThemeSystem = {
     Themes = {}
 }
 
--- Dark Futuristic Theme (Inspirado em Blender/Unreal)
 ThemeSystem.Themes.DarkFuturistic = {
     Name = "Dark Futuristic",
-    
-    -- Background Colors
-    Background = Color3.fromRGB(25, 25, 28),
+    Background          = Color3.fromRGB(25, 25, 28),
     BackgroundSecondary = Color3.fromRGB(32, 32, 36),
-    BackgroundTertiary = Color3.fromRGB(40, 40, 45),
-    
-    -- Surface Colors
-    Surface = Color3.fromRGB(45, 45, 50),
-    SurfaceHover = Color3.fromRGB(55, 55, 60),
-    SurfaceActive = Color3.fromRGB(65, 65, 70),
-    
-    -- Accent Colors
-    Primary = Color3.fromRGB(100, 150, 255),
-    PrimaryHover = Color3.fromRGB(120, 170, 255),
-    PrimaryActive = Color3.fromRGB(80, 130, 255),
-    
-    Secondary = Color3.fromRGB(150, 100, 255),
-    Success = Color3.fromRGB(100, 255, 150),
-    Warning = Color3.fromRGB(255, 200, 100),
-    Error = Color3.fromRGB(255, 100, 100),
-    
-    -- Text Colors
-    TextPrimary = Color3.fromRGB(240, 240, 245),
-    TextSecondary = Color3.fromRGB(180, 180, 190),
-    TextTertiary = Color3.fromRGB(120, 120, 130),
-    TextDisabled = Color3.fromRGB(80, 80, 90),
-    
-    -- Border Colors
-    Border = Color3.fromRGB(60, 60, 65),
-    BorderHover = Color3.fromRGB(100, 100, 110),
-    BorderActive = Color3.fromRGB(100, 150, 255),
-    
-    -- Special Colors
-    Highlight = Color3.fromRGB(100, 150, 255),
-    Selection = Color3.fromRGB(100, 150, 255),
-    KeyframePrimary = Color3.fromRGB(255, 200, 100),
-    KeyframeSecondary = Color3.fromRGB(100, 200, 255),
-    
-    -- Timeline Colors
-    TimelineBackground = Color3.fromRGB(30, 30, 33),
-    TimelineRuler = Color3.fromRGB(50, 50, 55),
-    TimelineCursor = Color3.fromRGB(255, 100, 100),
-    TimelineMarker = Color3.fromRGB(100, 255, 150),
-    
-    -- Sizes
-    FontSize = 14,
-    FontSizeLarge = 16,
-    FontSizeSmall = 12,
-    
-    BorderWidth = 1,
-    CornerRadius = 4,
-    Padding = 8,
-    Spacing = 4,
-    
-    -- Effects
-    ShadowTransparency = 0.7,
-    BlurSize = 24,
-    AnimationSpeed = 0.15,
+    BackgroundTertiary  = Color3.fromRGB(40, 40, 45),
+    Surface             = Color3.fromRGB(45, 45, 50),
+    SurfaceHover        = Color3.fromRGB(55, 55, 60),
+    SurfaceActive       = Color3.fromRGB(65, 65, 70),
+    Primary             = Color3.fromRGB(100, 150, 255),
+    PrimaryHover        = Color3.fromRGB(120, 170, 255),
+    PrimaryActive       = Color3.fromRGB(80, 130, 255),
+    Secondary           = Color3.fromRGB(150, 100, 255),
+    Success             = Color3.fromRGB(100, 220, 150),
+    Warning             = Color3.fromRGB(255, 200, 100),
+    Error               = Color3.fromRGB(255, 100, 100),
+    TextPrimary         = Color3.fromRGB(240, 240, 245),
+    TextSecondary       = Color3.fromRGB(180, 180, 190),
+    TextTertiary        = Color3.fromRGB(120, 120, 130),
+    TextDisabled        = Color3.fromRGB(80, 80, 90),
+    Border              = Color3.fromRGB(60, 60, 65),
+    BorderHover         = Color3.fromRGB(100, 100, 110),
+    BorderActive        = Color3.fromRGB(100, 150, 255),
+    Highlight           = Color3.fromRGB(100, 150, 255),
+    Selection           = Color3.fromRGB(100, 150, 255),
+    KeyframePrimary     = Color3.fromRGB(255, 200, 100),
+    KeyframeSecondary   = Color3.fromRGB(100, 200, 255),
+    TimelineBackground  = Color3.fromRGB(30, 30, 33),
+    TimelineRuler       = Color3.fromRGB(50, 50, 55),
+    TimelineCursor      = Color3.fromRGB(255, 100, 100),
+    TimelineMarker      = Color3.fromRGB(100, 255, 150),
+    FontSize            = 14,
+    FontSizeLarge       = 16,
+    FontSizeSmall       = 12,
+    BorderWidth         = 1,
+    CornerRadius        = 4,
+    Padding             = 8,
+    Spacing             = 4,
+    ShadowTransparency  = 0.7,
+    AnimationSpeed      = 0.15,
 }
 
 function ThemeSystem:GetTheme(themeName)
@@ -464,9 +519,6 @@ function ThemeSystem:SetTheme(themeName)
     if self.Themes[themeName] then
         self.CurrentTheme = themeName
         Logger:Info("Theme changed to: %s", themeName)
-        if MOON.UI.ApplyTheme then
-            MOON.UI.ApplyTheme()
-        end
     else
         Logger:Error("Theme not found: %s", themeName)
     end
@@ -475,114 +527,108 @@ end
 MOON.UI.ThemeSystem = ThemeSystem
 
 -- ═══════════════════════════════════════════════════════════
--- UI BUILDER (Component Factory)
+-- UI BUILDER
 -- ═══════════════════════════════════════════════════════════
 
 local UIBuilder = {}
 
 function UIBuilder:Create(className, properties)
-    local instance = Instance.new(className)
-    
+    local ok, instance = pcall(Instance.new, className)
+    if not ok then
+        Logger:Error("Cannot create instance: %s", className)
+        return nil
+    end
+
     for property, value in pairs(properties or {}) do
         if property == "Children" then
             for _, child in ipairs(value) do
-                child.Parent = instance
+                if child then child.Parent = instance end
             end
         else
-            instance[property] = value
+            local setOk, setErr = pcall(function()
+                instance[property] = value
+            end)
+            if not setOk then
+                Logger:Warn("Cannot set %s.%s: %s", className, property, tostring(setErr))
+            end
         end
     end
-    
+
     return instance
 end
 
 function UIBuilder:CreateFrame(properties)
     local theme = ThemeSystem:GetTheme()
-    
     local defaults = {
         BackgroundColor3 = theme.Surface,
-        BorderSizePixel = theme.BorderWidth,
-        BorderColor3 = theme.Border,
+        BorderSizePixel  = 0,
     }
-    
     return self:Create("Frame", Utils.TableMerge(defaults, properties or {}))
 end
 
 function UIBuilder:CreateTextLabel(text, properties)
     local theme = ThemeSystem:GetTheme()
-    
     local defaults = {
-        Text = text or "",
-        Font = Enum.Font.Gotham,
-        TextSize = theme.FontSize,
-        TextColor3 = theme.TextPrimary,
+        Text                 = text or "",
+        Font                 = Enum.Font.Gotham,
+        TextSize             = theme.FontSize,
+        TextColor3           = theme.TextPrimary,
         BackgroundTransparency = 1,
-        TextXAlignment = Enum.TextXAlignment.Left,
+        TextXAlignment       = Enum.TextXAlignment.Left,
+        BorderSizePixel      = 0,
     }
-    
     return self:Create("TextLabel", Utils.TableMerge(defaults, properties or {}))
 end
 
 function UIBuilder:CreateTextButton(text, properties)
     local theme = ThemeSystem:GetTheme()
-    
     local defaults = {
-        Text = text or "",
-        Font = Enum.Font.GothamBold,
-        TextSize = theme.FontSize,
-        TextColor3 = theme.TextPrimary,
+        Text            = text or "",
+        Font            = Enum.Font.GothamBold,
+        TextSize        = theme.FontSize,
+        TextColor3      = theme.TextPrimary,
         BackgroundColor3 = theme.Primary,
         BorderSizePixel = 0,
         AutoButtonColor = false,
     }
-    
-    local button = self:Create("TextButton", Utils.TableMerge(defaults, properties or {}))
-    
-    -- Add hover effects
-    button.MouseEnter:Connect(function()
-        TweenService:Create(button, TweenInfo.new(theme.AnimationSpeed), {
-            BackgroundColor3 = theme.PrimaryHover
-        }):Play()
-    end)
-    
-    button.MouseLeave:Connect(function()
-        TweenService:Create(button, TweenInfo.new(theme.AnimationSpeed), {
-            BackgroundColor3 = theme.Primary
-        }):Play()
-    end)
-    
-    return button
-end
 
-function UIBuilder:CreateImageButton(properties)
-    local theme = ThemeSystem:GetTheme()
-    
-    local defaults = {
-        BackgroundColor3 = theme.Surface,
-        BorderSizePixel = 0,
-        AutoButtonColor = false,
-    }
-    
-    return self:Create("ImageButton", Utils.TableMerge(defaults, properties or {}))
+    local btn = self:Create("TextButton", Utils.TableMerge(defaults, properties or {}))
+    if not btn then return nil end
+
+    btn.MouseEnter:Connect(function()
+        pcall(function()
+            TweenService:Create(btn, TweenInfo.new(theme.AnimationSpeed), {
+                BackgroundTransparency = 0.15
+            }):Play()
+        end)
+    end)
+
+    btn.MouseLeave:Connect(function()
+        pcall(function()
+            TweenService:Create(btn, TweenInfo.new(theme.AnimationSpeed), {
+                BackgroundTransparency = 0
+            }):Play()
+        end)
+    end)
+
+    return btn
 end
 
 function UIBuilder:CreateScrollingFrame(properties)
     local theme = ThemeSystem:GetTheme()
-    
     local defaults = {
-        BackgroundColor3 = theme.Background,
-        BorderSizePixel = theme.BorderWidth,
-        BorderColor3 = theme.Border,
-        ScrollBarThickness = 8,
+        BackgroundColor3    = theme.Background,
+        BorderSizePixel     = 0,
+        ScrollBarThickness  = 6,
         ScrollBarImageColor3 = theme.Primary,
-        CanvasSize = UDim2.new(0, 0, 0, 0),
+        CanvasSize          = UDim2.new(0, 0, 0, 0),
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
     }
-    
     return self:Create("ScrollingFrame", Utils.TableMerge(defaults, properties or {}))
 end
 
 function UIBuilder:AddCorner(parent, radius)
+    if not parent then return end
     local theme = ThemeSystem:GetTheme()
     return self:Create("UICorner", {
         CornerRadius = UDim.new(0, radius or theme.CornerRadius),
@@ -591,236 +637,238 @@ function UIBuilder:AddCorner(parent, radius)
 end
 
 function UIBuilder:AddPadding(parent, padding)
+    if not parent then return end
     local theme = ThemeSystem:GetTheme()
     local pad = padding or theme.Padding
-    
-    return self:Create("UIPadding", {
-        PaddingTop = UDim.new(0, pad),
-        PaddingBottom = UDim.new(0, pad),
-        PaddingLeft = UDim.new(0, pad),
-        PaddingRight = UDim.new(0, pad),
-        Parent = parent
-    })
+    if type(pad) == "number" then
+        return self:Create("UIPadding", {
+            PaddingTop    = UDim.new(0, pad),
+            PaddingBottom = UDim.new(0, pad),
+            PaddingLeft   = UDim.new(0, pad),
+            PaddingRight  = UDim.new(0, pad),
+            Parent = parent
+        })
+    end
+    return nil
 end
 
 function UIBuilder:AddStroke(parent, thickness, color)
+    if not parent then return end
     local theme = ThemeSystem:GetTheme()
-    
     return self:Create("UIStroke", {
-        Thickness = thickness or 1,
-        Color = color or theme.Border,
+        Thickness       = thickness or 1,
+        Color           = color or theme.Border,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        Parent = parent
+        Parent          = parent
     })
-end
-
-function UIBuilder:AddShadow(parent)
-    local theme = ThemeSystem:GetTheme()
-    
-    local shadow = self:Create("ImageLabel", {
-        Name = "Shadow",
-        BackgroundTransparency = 1,
-        Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-        ImageColor3 = Color3.new(0, 0, 0),
-        ImageTransparency = theme.ShadowTransparency,
-        Size = UDim2.new(1, 30, 1, 30),
-        Position = UDim2.new(0, -15, 0, -15),
-        ZIndex = parent.ZIndex - 1,
-        Parent = parent
-    })
-    
-    return shadow
 end
 
 MOON.UI.Builder = UIBuilder
 
 -- ═══════════════════════════════════════════════════════════
--- SCREEN GUI CONTAINER
+-- SCREEN GUI CONTAINER (CORRIGIDO - SEM CoreGui forçado)
 -- ═══════════════════════════════════════════════════════════
 
 local function CreateMainContainer()
-    -- Try to use CoreGui for better compatibility
     local container
-    local success = pcall(function()
+
+    -- Tenta CoreGui primeiro (executors com acesso)
+    local coreGuiOk = pcall(function()
+        local cg = game:GetService("CoreGui")
+        -- Verifica se já existe
+        local existing = cg:FindFirstChild("MoonAnimatorAssyncred")
+        if existing then existing:Destroy() end
+
         container = UIBuilder:Create("ScreenGui", {
-            Name = "MoonAnimatorAssyncred",
-            ResetOnSpawn = false,
-            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-            IgnoreGuiInset = true,
-            Parent = CoreGui
+            Name              = "MoonAnimatorAssyncred",
+            ResetOnSpawn      = false,
+            ZIndexBehavior    = Enum.ZIndexBehavior.Sibling,
+            IgnoreGuiInset    = true,
+            Parent            = cg
         })
     end)
-    
-    if not success then
-        -- Fallback to PlayerGui
-        container = UIBuilder:Create("ScreenGui", {
-            Name = "MoonAnimatorAssyncred",
-            ResetOnSpawn = false,
-            ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-            IgnoreGuiInset = true,
-            Parent = Player:WaitForChild("PlayerGui")
-        })
-        Logger:Warn("Using PlayerGui instead of CoreGui")
+
+    -- Fallback PlayerGui
+    if not coreGuiOk or not container then
+        Logger:Warn("CoreGui unavailable, using PlayerGui")
+        local playerGui = Player:WaitForChild("PlayerGui", 5)
+        if playerGui then
+            local existing = playerGui:FindFirstChild("MoonAnimatorAssyncred")
+            if existing then existing:Destroy() end
+
+            container = UIBuilder:Create("ScreenGui", {
+                Name           = "MoonAnimatorAssyncred",
+                ResetOnSpawn   = false,
+                ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+                IgnoreGuiInset = true,
+                Parent         = playerGui
+            })
+        end
     end
-    
-    MOON.UI.Container = container
-    Logger:Success("Main UI Container created")
-    
+
+    if container then
+        MOON.UI.Container = container
+        Logger:Success("UI Container created successfully")
+    else
+        Logger:Error("FATAL: Could not create UI Container!")
+    end
+
     return container
 end
 
 -- ═══════════════════════════════════════════════════════════
--- DRAGGABLE COMPONENT
+-- DRAGGABLE (CORRIGIDO para touch + mouse)
 -- ═══════════════════════════════════════════════════════════
 
 local Draggable = {}
 
 function Draggable.MakeDraggable(frame, dragHandle)
+    if not frame or not dragHandle then return end
     dragHandle = dragHandle or frame
-    
+
     local dragging = false
-    local dragInput, mousePos, framePos
-    
-    local function update(input)
+    local mousePos, framePos
+
+    local function startDrag(input)
+        dragging  = true
+        mousePos  = input.Position
+        framePos  = frame.Position
+    end
+
+    local function updateDrag(input)
+        if not dragging then return end
         local delta = input.Position - mousePos
-        frame.Position = UDim2.new(
+        local newPos = UDim2.new(
             framePos.X.Scale,
             framePos.X.Offset + delta.X,
             framePos.Y.Scale,
             framePos.Y.Offset + delta.Y
         )
+        -- Clamp dentro da tela
+        local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+            or Vector2.new(1280, 720)
+        local absSize = frame.AbsoluteSize
+        newPos = UDim2.new(
+            0,
+            Utils.Clamp(newPos.X.Offset, 0, viewport.X - absSize.X),
+            0,
+            Utils.Clamp(newPos.Y.Offset, 0, viewport.Y - absSize.Y)
+        )
+        frame.Position = newPos
     end
-    
-    dragHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
-           input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            mousePos = input.Position
-            framePos = frame.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
+
+    local function endDrag(input)
+        dragging = false
+    end
+
+    pcall(function()
+        dragHandle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or
+               input.UserInputType == Enum.UserInputType.Touch then
+                startDrag(input)
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        endDrag(input)
+                    end
+                end)
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging then
+                if input.UserInputType == Enum.UserInputType.MouseMovement or
+                   input.UserInputType == Enum.UserInputType.Touch then
+                    updateDrag(input)
                 end
-            end)
-        end
-    end)
-    
-    dragHandle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or
-           input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            update(input)
-        end
+            end
+        end)
     end)
 end
 
 MOON.UI.Draggable = Draggable
 
 -- ═══════════════════════════════════════════════════════════
--- RESIZABLE COMPONENT
+-- RESIZABLE
 -- ═══════════════════════════════════════════════════════════
 
 local Resizable = {}
 
 function Resizable.MakeResizable(frame, minSize, maxSize)
+    if not frame then return end
     local theme = ThemeSystem:GetTheme()
     minSize = minSize or MOON.Config.MinWindowSize
     maxSize = maxSize or MOON.Config.MaxWindowSize
-    
-    -- Create resize handle (bottom-right corner)
-    local resizeHandle = UIBuilder:Create("Frame", {
-        Name = "ResizeHandle",
-        Size = UDim2.new(0, 16, 0, 16),
-        Position = UDim2.new(1, -16, 1, -16),
+
+    local handle = UIBuilder:CreateFrame({
+        Name             = "ResizeHandle",
+        Size             = UDim2.new(0, 18, 0, 18),
+        Position         = UDim2.new(1, -18, 1, -18),
         BackgroundColor3 = theme.Primary,
-        BackgroundTransparency = 0.5,
-        BorderSizePixel = 0,
-        Parent = frame
+        BackgroundTransparency = 0.4,
+        BorderSizePixel  = 0,
+        ZIndex           = frame.ZIndex + 5,
+        Parent           = frame
     })
-    
-    UIBuilder:AddCorner(resizeHandle, 2)
-    
+    UIBuilder:AddCorner(handle, 3)
+
     local resizing = false
-    local resizeInput, mousePos, frameSize
-    
-    local function update(input)
-        local delta = input.Position - mousePos
-        local newX = Utils.Clamp(frameSize.X.Offset + delta.X, minSize.X, maxSize.X)
-        local newY = Utils.Clamp(frameSize.Y.Offset + delta.Y, minSize.Y, maxSize.Y)
-        
-        frame.Size = UDim2.new(frameSize.X.Scale, newX, frameSize.Y.Scale, newY)
-    end
-    
-    resizeHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or
-           input.UserInputType == Enum.UserInputType.Touch then
-            resizing = true
-            mousePos = input.Position
-            frameSize = frame.Size
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    resizing = false
+    local startMousePos, startSize
+
+    pcall(function()
+        handle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or
+               input.UserInputType == Enum.UserInputType.Touch then
+                resizing      = true
+                startMousePos = input.Position
+                startSize     = frame.AbsoluteSize
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        resizing = false
+                    end
+                end)
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if resizing then
+                if input.UserInputType == Enum.UserInputType.MouseMovement or
+                   input.UserInputType == Enum.UserInputType.Touch then
+                    local delta = input.Position - startMousePos
+                    local newX  = Utils.Clamp(startSize.X + delta.X, minSize.X, maxSize.X)
+                    local newY  = Utils.Clamp(startSize.Y + delta.Y, minSize.Y, maxSize.Y)
+                    frame.Size  = UDim2.new(0, newX, 0, newY)
                 end
-            end)
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if (input.UserInputType == Enum.UserInputType.MouseMovement or
-            input.UserInputType == Enum.UserInputType.Touch) and resizing then
-            update(input)
-        end
+            end
+        end)
     end)
 end
 
 MOON.UI.Resizable = Resizable
 
 -- ═══════════════════════════════════════════════════════════
--- INITIALIZATION
+-- INIT
 -- ═══════════════════════════════════════════════════════════
 
 CreateMainContainer()
 Logger:Success("UI Framework & Theme System initialized!")
-Logger:Info("Ready to load Window System (Part 3)")
+Logger:Info("Paste Part 3 now...")
 
 --[[
 ═══════════════════════════════════════════════════════════════
-    FIM DA PARTE 2/20
-    
-    ✅ Sistema de temas profissional
-    ✅ UI Builder (Factory Pattern)
-    ✅ Componentes reutilizáveis
-    ✅ Sistema de arrastar
-    ✅ Sistema de redimensionar
-    ✅ Container principal
-    
-    PRÓXIMA PARTE: Window System & Dock Manager
-═══════════════════════════════════════════════════════════════
-]]
-
---[[
-═══════════════════════════════════════════════════════════════
-    🌙 MOON ANIMATOR ASSYNCRED - PARTE 3/20
+    🌙 MOON ANIMATOR ASSYNCRED - PARTE 3/20 [CORRIGIDA]
     WINDOW SYSTEM & DOCK MANAGER
-    
-    Sistema de janelas profissional com suporte a docking
 ═══════════════════════════════════════════════════════════════
 ]]
 
-local MOON = _G.MOON
-local Logger = MOON.Core.Logger
-local Utils = MOON.Utils
-local UIBuilder = MOON.UI.Builder
-local ThemeSystem = MOON.UI.ThemeSystem
-local Draggable = MOON.UI.Draggable
-local Resizable = MOON.UI.Resizable
+local MOON           = _G.MOON
+local Logger         = MOON.Core.Logger
+local Utils          = MOON.Utils
+local UIBuilder      = MOON.UI.Builder
+local ThemeSystem    = MOON.UI.ThemeSystem
+local Draggable      = MOON.UI.Draggable
+local Resizable      = MOON.UI.Resizable
+local TweenService   = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 -- ═══════════════════════════════════════════════════════════
 -- WINDOW CLASS
@@ -832,157 +880,136 @@ Window.__index = Window
 function Window.new(config)
     local self = setmetatable({}, Window)
     local theme = ThemeSystem:GetTheme()
-    
-    -- Configuration
-    self.Id = Utils.UUID()
-    self.Title = config.Title or "Untitled Window"
-    self.Size = config.Size or UDim2.new(0, 600, 0, 400)
-    self.Position = config.Position or UDim2.new(0.5, -300, 0.5, -200)
-    self.MinSize = config.MinSize or Vector2.new(300, 200)
-    self.MaxSize = config.MaxSize or Vector2.new(1200, 800)
-    self.Resizable = config.Resizable ~= false
-    self.Closable = config.Closable ~= false
-    self.Minimizable = config.Minimizable ~= false
-    
-    -- Events
-    self.OnClose = Utils.Signal.new()
-    self.OnMinimize = Utils.Signal.new()
-    self.OnMaximize = Utils.Signal.new()
-    self.OnResize = Utils.Signal.new()
-    self.OnFocus = Utils.Signal.new()
-    
-    -- State
-    self.IsMinimized = false
-    self.IsMaximized = false
-    self.IsFocused = false
-    self.ZIndex = 100
-    
-    -- Create UI
-    self:CreateUI()
-    
+
+    self.Id           = Utils.UUID()
+    self.Title        = config.Title or "Window"
+    self.Size         = config.Size or UDim2.new(0, 600, 0, 400)
+    self.Position     = config.Position or UDim2.new(0.5, -300, 0.5, -200)
+    self.MinSize      = config.MinSize or Vector2.new(300, 200)
+    self.MaxSize      = config.MaxSize or Vector2.new(1200, 800)
+    self.IsResizable  = config.Resizable ~= false
+    self.Closable     = config.Closable  ~= false
+    self.Minimizable  = config.Minimizable ~= false
+
+    self.OnClose      = Utils.Signal.new()
+    self.OnMinimize   = Utils.Signal.new()
+    self.OnMaximize   = Utils.Signal.new()
+    self.OnFocus      = Utils.Signal.new()
+
+    self.IsMinimized  = false
+    self.IsMaximized  = false
+    self.IsFocused    = false
+    self.ZIndex       = 100
+
+    self:_buildUI()
     return self
 end
 
-function Window:CreateUI()
+function Window:_buildUI()
     local theme = ThemeSystem:GetTheme()
-    
-    -- Main container
+    local tbH   = MOON.Config.TopBarHeight
+
+    -- Root frame
     self.Frame = UIBuilder:CreateFrame({
-        Name = "Window_" .. self.Id,
-        Size = self.Size,
-        Position = self.Position,
-        ZIndex = self.ZIndex,
-        Parent = MOON.UI.Container
-    })
-    
-    UIBuilder:AddCorner(self.Frame, 8)
-    UIBuilder:AddShadow(self.Frame)
-    
-    -- Top bar
-    self.TopBar = UIBuilder:CreateFrame({
-        Name = "TopBar",
-        Size = UDim2.new(1, 0, 0, MOON.Config.TopBarHeight),
-        BackgroundColor3 = theme.BackgroundTertiary,
-        BorderSizePixel = 0,
-        Parent = self.Frame
-    })
-    
-    UIBuilder:AddCorner(self.TopBar, 8)
-    
-    -- Title
-    self.TitleLabel = UIBuilder:CreateTextLabel(self.Title, {
-        Name = "Title",
-        Size = UDim2.new(1, -100, 1, 0),
-        Position = UDim2.new(0, 12, 0, 0),
-        Font = Enum.Font.GothamBold,
-        TextSize = theme.FontSize,
-        Parent = self.TopBar
-    })
-    
-    -- Buttons container
-    local buttonsContainer = UIBuilder:CreateFrame({
-        Name = "Buttons",
-        Size = UDim2.new(0, 90, 1, 0),
-        Position = UDim2.new(1, -90, 0, 0),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        Parent = self.TopBar
-    })
-    
-    local buttonSize = MOON.Config.TopBarHeight - 8
-    local buttonSpacing = 4
-    
-    -- Close button
-    if self.Closable then
-        local closeBtn = UIBuilder:CreateTextButton("×", {
-            Name = "CloseButton",
-            Size = UDim2.new(0, buttonSize, 0, buttonSize),
-            Position = UDim2.new(1, -buttonSize - 4, 0.5, -buttonSize/2),
-            BackgroundColor3 = theme.Error,
-            TextSize = 20,
-            Parent = buttonsContainer
-        })
-        
-        UIBuilder:AddCorner(closeBtn, 4)
-        
-        closeBtn.MouseButton1Click:Connect(function()
-            self:Close()
-        end)
-    end
-    
-    -- Minimize button
-    if self.Minimizable then
-        local minimizeBtn = UIBuilder:CreateTextButton("−", {
-            Name = "MinimizeButton",
-            Size = UDim2.new(0, buttonSize, 0, buttonSize),
-            Position = UDim2.new(1, -(buttonSize * 2) - 8, 0.5, -buttonSize/2),
-            BackgroundColor3 = theme.Warning,
-            TextSize = 18,
-            Parent = buttonsContainer
-        })
-        
-        UIBuilder:AddCorner(minimizeBtn, 4)
-        
-        minimizeBtn.MouseButton1Click:Connect(function()
-            self:ToggleMinimize()
-        end)
-    end
-    
-    -- Maximize button
-    local maximizeBtn = UIBuilder:CreateTextButton("□", {
-        Name = "MaximizeButton",
-        Size = UDim2.new(0, buttonSize, 0, buttonSize),
-        Position = UDim2.new(1, -(buttonSize * 3) - 12, 0.5, -buttonSize/2),
-        BackgroundColor3 = theme.Success,
-        TextSize = 14,
-        Parent = buttonsContainer
-    })
-    
-    UIBuilder:AddCorner(maximizeBtn, 4)
-    
-    maximizeBtn.MouseButton1Click:Connect(function()
-        self:ToggleMaximize()
-    end)
-    
-    -- Content area
-    self.Content = UIBuilder:CreateFrame({
-        Name = "Content",
-        Size = UDim2.new(1, 0, 1, -MOON.Config.TopBarHeight),
-        Position = UDim2.new(0, 0, 0, MOON.Config.TopBarHeight),
+        Name             = "Window_" .. self.Id,
+        Size             = self.Size,
+        Position         = self.Position,
         BackgroundColor3 = theme.Background,
-        BorderSizePixel = 0,
-        Parent = self.Frame
+        BorderSizePixel  = 0,
+        ZIndex           = self.ZIndex,
+        ClipsDescendants = false,
+        Parent           = MOON.UI.Container
     })
-    
-    -- Make draggable
+    UIBuilder:AddCorner(self.Frame, 8)
+    UIBuilder:AddStroke(self.Frame, 1, theme.Border)
+
+    -- TopBar
+    self.TopBar = UIBuilder:CreateFrame({
+        Name             = "TopBar",
+        Size             = UDim2.new(1, 0, 0, tbH),
+        BackgroundColor3 = theme.BackgroundTertiary,
+        BorderSizePixel  = 0,
+        ZIndex           = self.ZIndex + 1,
+        Parent           = self.Frame
+    })
+    UIBuilder:AddCorner(self.TopBar, 8)
+
+    -- Title label
+    self.TitleLabel = UIBuilder:CreateTextLabel(self.Title, {
+        Name           = "Title",
+        Size           = UDim2.new(1, -100, 1, 0),
+        Position       = UDim2.new(0, 12, 0, 0),
+        Font           = Enum.Font.GothamBold,
+        TextSize       = 13,
+        ZIndex         = self.ZIndex + 2,
+        Parent         = self.TopBar
+    })
+
+    -- Buttons
+    local btnSize = tbH - 8
+    local xOff    = -6
+
+    -- Close
+    if self.Closable then
+        local cb = UIBuilder:CreateTextButton("✕", {
+            Size             = UDim2.new(0, btnSize, 0, btnSize),
+            Position         = UDim2.new(1, xOff - btnSize, 0.5, -btnSize/2),
+            BackgroundColor3 = theme.Error,
+            TextSize         = 13,
+            ZIndex           = self.ZIndex + 3,
+            Parent           = self.TopBar
+        })
+        UIBuilder:AddCorner(cb, 4)
+        xOff = xOff - btnSize - 4
+        cb.MouseButton1Click:Connect(function() self:Close() end)
+    end
+
+    -- Minimize
+    if self.Minimizable then
+        local mb = UIBuilder:CreateTextButton("−", {
+            Size             = UDim2.new(0, btnSize, 0, btnSize),
+            Position         = UDim2.new(1, xOff - btnSize, 0.5, -btnSize/2),
+            BackgroundColor3 = theme.Warning,
+            TextSize         = 16,
+            ZIndex           = self.ZIndex + 3,
+            Parent           = self.TopBar
+        })
+        UIBuilder:AddCorner(mb, 4)
+        xOff = xOff - btnSize - 4
+        mb.MouseButton1Click:Connect(function() self:ToggleMinimize() end)
+    end
+
+    -- Maximize
+    local mxb = UIBuilder:CreateTextButton("□", {
+        Size             = UDim2.new(0, btnSize, 0, btnSize),
+        Position         = UDim2.new(1, xOff - btnSize, 0.5, -btnSize/2),
+        BackgroundColor3 = theme.Success,
+        TextSize         = 12,
+        ZIndex           = self.ZIndex + 3,
+        Parent           = self.TopBar
+    })
+    UIBuilder:AddCorner(mxb, 4)
+    mxb.MouseButton1Click:Connect(function() self:ToggleMaximize() end)
+
+    -- Content
+    self.Content = UIBuilder:CreateFrame({
+        Name             = "Content",
+        Size             = UDim2.new(1, 0, 1, -tbH),
+        Position         = UDim2.new(0, 0, 0, tbH),
+        BackgroundColor3 = theme.Background,
+        BorderSizePixel  = 0,
+        ZIndex           = self.ZIndex + 1,
+        ClipsDescendants = true,
+        Parent           = self.Frame
+    })
+
+    -- Drag & Resize
     Draggable.MakeDraggable(self.Frame, self.TopBar)
-    
-    -- Make resizable
-    if self.Resizable then
+    if self.IsResizable then
         Resizable.MakeResizable(self.Frame, self.MinSize, self.MaxSize)
     end
-    
-    -- Focus handling
+
+    -- Focus on click
     self.Frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or
            input.UserInputType == Enum.UserInputType.Touch then
@@ -993,48 +1020,53 @@ end
 
 function Window:Close()
     self.OnClose:Fire()
-    self.Frame:Destroy()
-    MOON.Systems.WindowManager:RemoveWindow(self.Id)
+    if self.Frame and self.Frame.Parent then
+        self.Frame:Destroy()
+    end
+    if MOON.Systems.WindowManager then
+        MOON.Systems.WindowManager:RemoveWindow(self.Id)
+    end
     Logger:Info("Window closed: %s", self.Title)
 end
 
 function Window:ToggleMinimize()
     self.IsMinimized = not self.IsMinimized
-    
-    local targetSize = self.IsMinimized and 
-        UDim2.new(self.Frame.Size.X.Scale, self.Frame.Size.X.Offset, 0, MOON.Config.TopBarHeight) or
-        self.Size
-    
-    TweenService:Create(self.Frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
-        Size = targetSize
-    }):Play()
-    
+    local tbH = MOON.Config.TopBarHeight
+    local target
+    if self.IsMinimized then
+        target = UDim2.new(
+            self.Frame.Size.X.Scale, self.Frame.Size.X.Offset,
+            0, tbH
+        )
+    else
+        target = self.Size
+    end
+    pcall(function()
+        TweenService:Create(self.Frame, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {
+            Size = target
+        }):Play()
+    end)
     self.OnMinimize:Fire(self.IsMinimized)
 end
 
 function Window:ToggleMaximize()
-    local theme = ThemeSystem:GetTheme()
-    
     if not self.IsMaximized then
-        -- Store current state
-        self._previousSize = self.Frame.Size
-        self._previousPosition = self.Frame.Position
-        
-        -- Maximize
-        local tween = TweenService:Create(self.Frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
-            Size = UDim2.new(1, -20, 1, -20),
-            Position = UDim2.new(0, 10, 0, 10)
-        })
-        tween:Play()
+        self._prevSize = self.Frame.Size
+        self._prevPos  = self.Frame.Position
+        pcall(function()
+            TweenService:Create(self.Frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+                Size     = UDim2.new(1, -20, 1, -20),
+                Position = UDim2.new(0, 10, 0, 10)
+            }):Play()
+        end)
     else
-        -- Restore
-        local tween = TweenService:Create(self.Frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
-            Size = self._previousSize,
-            Position = self._previousPosition
-        })
-        tween:Play()
+        pcall(function()
+            TweenService:Create(self.Frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+                Size     = self._prevSize,
+                Position = self._prevPos
+            }):Play()
+        end)
     end
-    
     self.IsMaximized = not self.IsMaximized
     self.OnMaximize:Fire(self.IsMaximized)
 end
@@ -1043,14 +1075,15 @@ function Window:Focus()
     if MOON.Systems.WindowManager then
         MOON.Systems.WindowManager:FocusWindow(self.Id)
     end
-    
     self.IsFocused = true
     self.OnFocus:Fire()
 end
 
 function Window:SetTitle(title)
     self.Title = title
-    self.TitleLabel.Text = title
+    if self.TitleLabel then
+        self.TitleLabel.Text = title
+    end
 end
 
 function Window:GetContentFrame()
@@ -1064,162 +1097,83 @@ MOON.UI.Window = Window
 -- ═══════════════════════════════════════════════════════════
 
 local WindowManager = {
-    Windows = {},
-    FocusedWindow = nil,
-    BaseZIndex = 100
+    Windows   = {},
+    FocusedId = nil,
+    BaseZ     = 100,
+    ZStep     = 10,
 }
 
 function WindowManager:CreateWindow(config)
-    local window = Window.new(config)
-    self.Windows[window.Id] = window
-    self:FocusWindow(window.Id)
-    
-    Logger:Info("Window created: %s", window.Title)
-    return window
+    local win = Window.new(config)
+    self.Windows[win.Id] = win
+    self:FocusWindow(win.Id)
+    Logger:Info("Window created: %s", win.Title)
+    return win
 end
 
-function WindowManager:RemoveWindow(windowId)
-    self.Windows[windowId] = nil
-    
-    -- Update focus
-    if self.FocusedWindow == windowId then
-        self.FocusedWindow = nil
-        -- Focus next available window
-        for id, _ in pairs(self.Windows) do
-            self:FocusWindow(id)
+function WindowManager:RemoveWindow(id)
+    self.Windows[id] = nil
+    if self.FocusedId == id then
+        self.FocusedId = nil
+        for wid, _ in pairs(self.Windows) do
+            self:FocusWindow(wid)
             break
         end
     end
 end
 
-function WindowManager:FocusWindow(windowId)
-    local window = self.Windows[windowId]
-    if not window then return end
-    
-    -- Unfocus all windows
-    for _, win in pairs(self.Windows) do
-        win.IsFocused = false
-        win.Frame.ZIndex = self.BaseZIndex
+function WindowManager:FocusWindow(id)
+    local win = self.Windows[id]
+    if not win then return end
+    for _, w in pairs(self.Windows) do
+        w.IsFocused = false
+        if w.Frame then w.Frame.ZIndex = self.BaseZ end
     end
-    
-    -- Focus selected window
-    window.IsFocused = true
-    window.Frame.ZIndex = self.BaseZIndex + 10
-    self.FocusedWindow = windowId
+    win.IsFocused = true
+    if win.Frame then
+        win.Frame.ZIndex = self.BaseZ + self.ZStep
+    end
+    self.FocusedId = id
 end
 
-function WindowManager:GetWindow(windowId)
-    return self.Windows[windowId]
-end
-
-function WindowManager:GetAllWindows()
-    return self.Windows
-end
+function WindowManager:GetWindow(id)   return self.Windows[id] end
+function WindowManager:GetAllWindows() return self.Windows     end
 
 function WindowManager:CloseAll()
-    for _, window in pairs(self.Windows) do
-        window:Close()
+    for _, win in pairs(self.Windows) do
+        pcall(function() win:Close() end)
     end
 end
 
 MOON.Systems.WindowManager = WindowManager
 
 -- ═══════════════════════════════════════════════════════════
--- DOCK SYSTEM (Simplified)
+-- DOCK SYSTEM (simplificado)
 -- ═══════════════════════════════════════════════════════════
 
 local DockSystem = {
     DockZones = {},
-    DockedWindows = {}
+    DockedWindows = {},
 }
 
 function DockSystem:CreateDockZone(name, position, size)
     local theme = ThemeSystem:GetTheme()
-    
-    local dockZone = UIBuilder:CreateFrame({
-        Name = "DockZone_" .. name,
-        Position = position,
-        Size = size,
+    local zone = UIBuilder:CreateFrame({
+        Name             = "DockZone_" .. name,
+        Position         = position,
+        Size             = size,
         BackgroundColor3 = theme.BackgroundSecondary,
-        BorderColor3 = theme.Border,
-        Parent = MOON.UI.Container
+        Parent           = MOON.UI.Container
     })
-    
-    UIBuilder:AddCorner(dockZone, 4)
-    
-    self.DockZones[name] = {
-        Frame = dockZone,
-        DockedWindows = {}
-    }
-    
-    Logger:Info("Dock zone created: %s", name)
-    return dockZone
-end
-
-function DockSystem:DockWindow(windowId, zoneName)
-    local window = WindowManager:GetWindow(windowId)
-    local zone = self.DockZones[zoneName]
-    
-    if not window or not zone then return end
-    
-    -- Store original parent
-    window._originalParent = window.Frame.Parent
-    
-    -- Dock window
-    window.Frame.Parent = zone.Frame
-    window.Frame.Size = UDim2.new(1, 0, 1, 0)
-    window.Frame.Position = UDim2.new(0, 0, 0, 0)
-    
-    table.insert(zone.DockedWindows, windowId)
-    self.DockedWindows[windowId] = zoneName
-    
-    Logger:Info("Window docked: %s to %s", window.Title, zoneName)
-end
-
-function DockSystem:UndockWindow(windowId)
-    local window = WindowManager:GetWindow(windowId)
-    local zoneName = self.DockedWindows[windowId]
-    
-    if not window or not zoneName then return end
-    
-    local zone = self.DockZones[zoneName]
-    
-    -- Undock window
-    window.Frame.Parent = window._originalParent or MOON.UI.Container
-    window.Frame.Size = window.Size
-    window.Frame.Position = window.Position
-    
-    -- Remove from zone
-    local index = table.find(zone.DockedWindows, windowId)
-    if index then
-        table.remove(zone.DockedWindows, index)
-    end
-    
-    self.DockedWindows[windowId] = nil
-    
-    Logger:Info("Window undocked: %s", window.Title)
+    UIBuilder:AddCorner(zone, 4)
+    self.DockZones[name] = {Frame = zone, DockedWindows = {}}
+    return zone
 end
 
 MOON.Systems.DockSystem = DockSystem
 
-Logger:Success("Window System & Dock Manager initialized!")
-Logger:Info("Ready to load Plugin System (Part 4)")
-
---[[
-═══════════════════════════════════════════════════════════════
-    FIM DA PARTE 3/20
-    
-    ✅ Sistema de janelas profissional
-    ✅ Window Manager
-    ✅ TopBar com botões (Close, Minimize, Maximize)
-    ✅ Sistema de foco
-    ✅ Drag & Drop
-    ✅ Redimensionamento
-    ✅ Dock System básico
-    
-    PRÓXIMA PARTE: Plugin System & Plugin API
-═══════════════════════════════════════════════════════════════
-]]
+Logger:Success("Window System initialized!")
+Logger:Info("Paste Part 4 now...")
 
 --[[
 ═══════════════════════════════════════════════════════════════
@@ -1229,6 +1183,31 @@ Logger:Info("Ready to load Plugin System (Part 4)")
     Sistema de plugins modular e API para extensões
 ═══════════════════════════════════════════════════════════════
 ]]
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -1709,6 +1688,31 @@ Logger:Info("Ready to load Timeline System (Part 5)")
     Multi-track, keyframes, playback controls
 ═══════════════════════════════════════════════════════════════
 ]]
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -2419,6 +2423,32 @@ Logger:Info("Ready to load Animation Core (Part 6)")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -2906,6 +2936,32 @@ Logger:Info("Ready to load Graph Editor (Part 7)")
     Interpolação Bezier, tangentes, curve modifiers
 ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -3489,6 +3545,32 @@ Logger:Info("Ready to load Rigging System (Part 8)")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -4039,6 +4121,32 @@ Logger:Info("Ready to load Moon Animator Plugin (Part 9)")
     Interface completa de animação profissional
 ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -4911,6 +5019,32 @@ Logger:Success("Moon Animator Plugin registered!")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -5695,6 +5829,32 @@ Logger:Info("Ready to load Procedural Systems (Part 11)")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -6280,6 +6440,32 @@ Logger:Info("Ready to load Cinematic Tools (Part 12)")
     Inspirado em Unreal Sequencer e Cinemachine
 ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -6876,6 +7062,32 @@ Logger:Info("Ready to load Import/Export Systems (Part 13)")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -7431,6 +7643,32 @@ Logger:Info("Ready to load Performance Optimizations (Part 14)")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -7973,6 +8211,32 @@ Logger:Info("Ready to load Locomotion System (Part 15)")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -8482,6 +8746,32 @@ Logger:Info("Ready to load Main Launcher (Part 16)")
     Integra todos os módulos e plugins
 ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -9054,6 +9344,32 @@ Logger:Info("Ready to load additional features (Part 17)")
 ═══════════════════════════════════════════════════════════════
 ]]
 
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
+
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
 local Utils = MOON.Utils
@@ -9543,6 +9859,32 @@ Logger:Info("Ready to load Collaboration Tools (Part 18)")
     Version control e team workflow
 ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -10095,6 +10437,32 @@ Logger:Info("Ready to load Documentation & Helpers (Part 19)")
     Sistema de tutoriais, tooltips e ajuda integrada
 ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
@@ -10666,6 +11034,32 @@ Logger:Info("Ready to load Final Integration (Part 20)")
     🎉 FINALIZAÇÃO COMPLETA DO SISTEMA 🎉
 ═══════════════════════════════════════════════════════════════
 ]]
+
+-- ═══════════════════════════════════════════════════
+-- PATCH DE SEGURANÇA - Cole no topo de cada parte
+-- ═══════════════════════════════════════════════════
+
+local MOON = _G.MOON
+if not MOON then
+    error("MOON namespace not found! Run Part 1 first.")
+    return
+end
+
+local Logger      = MOON.Core.Logger
+local Utils       = MOON.Utils
+local UIBuilder   = MOON.UI and MOON.UI.Builder
+local ThemeSystem = MOON.UI and MOON.UI.ThemeSystem
+
+-- Services seguros
+local function GS(name)
+    local ok, s = pcall(game.GetService, game, name)
+    return ok and s or nil
+end
+
+local TweenService     = GS("TweenService")
+local UserInputService = GS("UserInputService")
+local RunService       = GS("RunService")
+local Players          = GS("Players")
 
 local MOON = _G.MOON
 local Logger = MOON.Core.Logger
